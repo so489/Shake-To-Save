@@ -16,8 +16,8 @@
     <string name="shake_status_sent">SOS Sent Successfully!</string>
     <string name="shake_status_failed">Failed to send SOS</string>
     <string name="shake_instruction">Shake your phone 2 times to send emergency SOS</string>
-    <string name="enable_protection">Enable SOS Protection</string>
-    <string name="enable_protection_desc">Shake detection for emergency alerts</string>
+    <string name="enable_protection">Enable Background Protection</string>
+    <string name="enable_protection_desc">Works even when app is closed</string>
     <string name="test_sos">Test SOS Alert</string>
     <string name="error_empty_email">Please set emergency contact email</string>
     <string name="error_invalid_email">Please enter a valid email address</string>

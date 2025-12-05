@@ -3,11 +3,13 @@ package com.example.shaketosave;
 import android.Manifest;
 import android.app.AlertDialog;
 import android.content.Context;
+import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.hardware.Sensor;
 import android.hardware.SensorManager;
 import android.location.Location;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.CountDownTimer;
 import android.os.Looper;
@@ -53,7 +55,10 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
     private static final String KEY_NAME = "user_name";
     private static final String KEY_SENDER_EMAIL = "sender_email";
     private static final String KEY_APP_PASSWORD = "app_password";
+    private static final String KEY_SERVICE_ENABLED = "service_enabled";
     private static final int LOCATION_PERMISSION_REQUEST = 1001;
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 1002;
+    private static final int BACKGROUND_LOCATION_REQUEST = 1003;
     private static final int SHAKE_THRESHOLD = 2;
     private static final int COUNTDOWN_SECONDS = 3;
 
@@ -96,6 +101,19 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         initLocation();
         loadSavedData();
         setupListeners();
+        checkPermissions();
+    }
+
+    private void checkPermissions() {
+        // Check notification permission for Android 13+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                ActivityCompat.requestPermissions(this,
+                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
+                        NOTIFICATION_PERMISSION_REQUEST);
+            }
+        }
         checkLocationPermission();
     }
 
@@ -174,6 +192,12 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         editName.setText(prefs.getString(KEY_NAME, ""));
         editSenderEmail.setText(prefs.getString(KEY_SENDER_EMAIL, ""));
         editAppPassword.setText(prefs.getString(KEY_APP_PASSWORD, ""));
+        
+        // Load service state
+        boolean serviceEnabled = prefs.getBoolean(KEY_SERVICE_ENABLED, false);
+        switchShake.setChecked(serviceEnabled);
+        isShakeEnabled = serviceEnabled;
+        
         updateSOSPreview();
     }
 
@@ -190,10 +214,18 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         switchShake.setOnCheckedChangeListener((buttonView, isChecked) -> {
             isShakeEnabled = isChecked;
             updateStatusUI();
+            
+            // Save service state
+            SharedPreferences.Editor editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
+            editor.putBoolean(KEY_SERVICE_ENABLED, isChecked);
+            editor.apply();
+            
             if (isChecked) {
                 registerShakeListener();
+                startShakeService();
             } else {
                 unregisterShakeListener();
+                stopShakeService();
             }
         });
 
@@ -202,6 +234,23 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         editName.setOnFocusChangeListener((v, hasFocus) -> {
             if (!hasFocus) updateSOSPreview();
         });
+    }
+
+    private void startShakeService() {
+        // Save data first so service can access it
+        saveData();
+        
+        Intent serviceIntent = new Intent(this, ShakeService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
+    }
+
+    private void stopShakeService() {
+        Intent serviceIntent = new Intent(this, ShakeService.class);
+        stopService(serviceIntent);
     }
 
     private void updateStatusUI() {
@@ -495,6 +544,11 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         super.onPause();
         unregisterShakeListener();
         saveData();
+        
+        // Start service when app goes to background if enabled
+        if (isShakeEnabled) {
+            startShakeService();
+        }
     }
 
     @Override
@@ -504,5 +558,6 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
             countDownTimer.cancel();
         }
         fusedLocationClient.removeLocationUpdates(locationCallback);
+        // Service keeps running in background
     }
 }
