@@ -15,8 +15,8 @@ import android.os.CountDownTimer;
 import android.os.Looper;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.telephony.SmsManager;
 import android.text.TextUtils;
-import android.util.Patterns;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.animation.Animation;
@@ -51,14 +51,12 @@ import java.util.Locale;
 public class MainActivity extends AppCompatActivity implements ShakeDetector.OnShakeListener {
 
     private static final String PREFS_NAME = "SafeShakePrefs";
-    private static final String KEY_EMAIL = "emergency_email";
+    private static final String KEY_PHONE = "emergency_phone";
     private static final String KEY_NAME = "user_name";
-    private static final String KEY_SENDER_EMAIL = "sender_email";
-    private static final String KEY_APP_PASSWORD = "app_password";
     private static final String KEY_SERVICE_ENABLED = "service_enabled";
     private static final int LOCATION_PERMISSION_REQUEST = 1001;
-    private static final int NOTIFICATION_PERMISSION_REQUEST = 1002;
-    private static final int BACKGROUND_LOCATION_REQUEST = 1003;
+    private static final int SMS_PERMISSION_REQUEST = 1002;
+    private static final int NOTIFICATION_PERMISSION_REQUEST = 1003;
     private static final int SHAKE_THRESHOLD = 2;
     private static final int COUNTDOWN_SECONDS = 5;
 
@@ -69,7 +67,7 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
     private FusedLocationProviderClient fusedLocationClient;
     private LocationCallback locationCallback;
 
-    private TextInputEditText editEmail, editName, editSenderEmail, editAppPassword;
+    private TextInputEditText editPhone, editName;
     private SwitchMaterial switchShake;
     private MaterialButton btnTestSOS;
     private TextView statusText, locationText, sosPreview;
@@ -105,23 +103,41 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
     }
 
     private void checkPermissions() {
-        // Check notification permission for Android 13+
+        // Request all permissions together for better UX
+        java.util.List<String> permissionsNeeded = new java.util.ArrayList<>();
+        
+        // SMS permission (required)
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
+                != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.SEND_SMS);
+        }
+        
+        // Location permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
+                != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION);
+        }
+        
+        // Notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
                     != PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
-                        NOTIFICATION_PERMISSION_REQUEST);
+                permissionsNeeded.add(Manifest.permission.POST_NOTIFICATIONS);
             }
         }
-        checkLocationPermission();
+        
+        if (!permissionsNeeded.isEmpty()) {
+            ActivityCompat.requestPermissions(this,
+                    permissionsNeeded.toArray(new String[0]),
+                    SMS_PERMISSION_REQUEST);
+        } else {
+            startLocationUpdates();
+        }
     }
 
     private void initViews() {
-        editEmail = findViewById(R.id.editEmail);
+        editPhone = findViewById(R.id.editPhone);
         editName = findViewById(R.id.editName);
-        editSenderEmail = findViewById(R.id.editSenderEmail);
-        editAppPassword = findViewById(R.id.editAppPassword);
         switchShake = findViewById(R.id.switchShake);
         btnTestSOS = findViewById(R.id.btnTestSOS);
         statusText = findViewById(R.id.statusText);
@@ -156,16 +172,7 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         };
     }
 
-    private void checkLocationPermission() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
-                != PackageManager.PERMISSION_GRANTED) {
-            ActivityCompat.requestPermissions(this,
-                    new String[]{Manifest.permission.ACCESS_FINE_LOCATION},
-                    LOCATION_PERMISSION_REQUEST);
-        } else {
-            startLocationUpdates();
-        }
-    }
+
 
     private void startLocationUpdates() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
@@ -188,12 +195,9 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
 
     private void loadSavedData() {
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
-        editEmail.setText(prefs.getString(KEY_EMAIL, ""));
+        editPhone.setText(prefs.getString(KEY_PHONE, ""));
         editName.setText(prefs.getString(KEY_NAME, ""));
-        editSenderEmail.setText(prefs.getString(KEY_SENDER_EMAIL, ""));
-        editAppPassword.setText(prefs.getString(KEY_APP_PASSWORD, ""));
         
-        // Load service state
         boolean serviceEnabled = prefs.getBoolean(KEY_SERVICE_ENABLED, false);
         switchShake.setChecked(serviceEnabled);
         isShakeEnabled = serviceEnabled;
@@ -203,10 +207,8 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
 
     private void saveData() {
         SharedPreferences.Editor editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
-        editor.putString(KEY_EMAIL, getTextValue(editEmail));
+        editor.putString(KEY_PHONE, getTextValue(editPhone));
         editor.putString(KEY_NAME, getTextValue(editName));
-        editor.putString(KEY_SENDER_EMAIL, getTextValue(editSenderEmail));
-        editor.putString(KEY_APP_PASSWORD, getTextValue(editAppPassword));
         editor.apply();
     }
 
@@ -215,7 +217,6 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
             isShakeEnabled = isChecked;
             updateStatusUI();
             
-            // Save service state
             SharedPreferences.Editor editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
             editor.putBoolean(KEY_SERVICE_ENABLED, isChecked);
             editor.apply();
@@ -237,9 +238,7 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
     }
 
     private void startShakeService() {
-        // Save data first so service can access it
         saveData();
-        
         Intent serviceIntent = new Intent(this, ShakeService.class);
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(serviceIntent);
@@ -269,23 +268,14 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         String name = getTextValue(editName);
         if (TextUtils.isEmpty(name)) name = "[Your Name]";
 
-        String locationStr;
         String mapsLink;
         if (hasLocation) {
-            locationStr = String.format(Locale.US, "%.6f, %.6f", currentLatitude, currentLongitude);
             mapsLink = String.format(Locale.US, "https://maps.google.com/?q=%.6f,%.6f", currentLatitude, currentLongitude);
         } else {
-            locationStr = "[GPS coordinates]";
             mapsLink = "[Google Maps link]";
         }
 
-        String preview = "🚨 EMERGENCY SOS ALERT 🚨\n\n" +
-                "This is " + name + ".\n" +
-                "I am in DANGER and need IMMEDIATE HELP!\n\n" +
-                "📍 My Location:\n" +
-                "Coordinates: " + locationStr + "\n" +
-                "Google Maps: " + mapsLink + "\n\n" +
-                "⚠️ Please contact emergency services immediately!";
+        String preview = "SOS ALERT! I'm " + name + ", I need HELP! " + mapsLink;
 
         sosPreview.setText(preview);
     }
@@ -295,12 +285,10 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         if (!isShakeEnabled || isSOSDialogShowing) return;
         if (count < SHAKE_THRESHOLD) return;
 
-        // Vibrate to provide feedback
         if (vibrator != null && vibrator.hasVibrator()) {
             vibrator.vibrate(VibrationEffect.createWaveform(new long[]{0, 200, 100, 200}, -1));
         }
 
-        // Animate the icon
         Animation shake = AnimationUtils.loadAnimation(this, R.anim.shake);
         shakeIcon.startAnimation(shake);
 
@@ -309,8 +297,6 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
 
     private void showSOSCountdownDialog() {
         if (isSOSDialogShowing) return;
-
-        // Validate inputs first
         if (!validateInputs()) return;
 
         isSOSDialogShowing = true;
@@ -328,10 +314,8 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         btnCancel.setOnClickListener(v -> cancelSOS());
 
         btnSendNow.setOnClickListener(v -> {
-            if (countDownTimer != null) {
-                countDownTimer.cancel();
-            }
-            sendSOSEmail();
+            if (countDownTimer != null) countDownTimer.cancel();
+            sendSOS();
             dismissSOSDialog();
         });
 
@@ -340,8 +324,6 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
             public void onTick(long millisUntilFinished) {
                 int secondsLeft = (int) (millisUntilFinished / 1000) + 1;
                 countdownText.setText(String.valueOf(secondsLeft));
-                
-                // Vibrate each second
                 if (vibrator != null && vibrator.hasVibrator()) {
                     vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE));
                 }
@@ -350,7 +332,7 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
             @Override
             public void onFinish() {
                 countdownText.setText("0");
-                sendSOSEmail();
+                sendSOS();
                 dismissSOSDialog();
             }
         };
@@ -360,26 +342,20 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
     }
 
     private void cancelSOS() {
-        if (countDownTimer != null) {
-            countDownTimer.cancel();
-        }
+        if (countDownTimer != null) countDownTimer.cancel();
         dismissSOSDialog();
         showToast(getString(R.string.sos_cancelled));
         updateStatusUI();
     }
 
     private void dismissSOSDialog() {
-        if (sosDialog != null && sosDialog.isShowing()) {
-            sosDialog.dismiss();
-        }
+        if (sosDialog != null && sosDialog.isShowing()) sosDialog.dismiss();
         isSOSDialogShowing = false;
     }
 
     private boolean validateInputs() {
-        String email = getTextValue(editEmail);
+        String phone = getTextValue(editPhone);
         String name = getTextValue(editName);
-        String senderEmail = getTextValue(editSenderEmail);
-        String appPassword = getTextValue(editAppPassword);
 
         if (TextUtils.isEmpty(name)) {
             showToast(getString(R.string.error_empty_name));
@@ -387,113 +363,71 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
             return false;
         }
 
-        if (TextUtils.isEmpty(email)) {
-            showToast(getString(R.string.error_empty_email));
-            editEmail.requestFocus();
+        if (TextUtils.isEmpty(phone)) {
+            showToast(getString(R.string.error_empty_phone));
+            editPhone.requestFocus();
             return false;
         }
 
-        if (!Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
-            showToast(getString(R.string.error_invalid_email));
-            editEmail.requestFocus();
+        if (phone.length() < 10) {
+            showToast(getString(R.string.error_invalid_phone));
+            editPhone.requestFocus();
             return false;
         }
 
-        if (TextUtils.isEmpty(senderEmail)) {
-            showToast(getString(R.string.error_empty_sender));
-            editSenderEmail.requestFocus();
-            return false;
-        }
-
-        if (!Patterns.EMAIL_ADDRESS.matcher(senderEmail).matches()) {
-            showToast(getString(R.string.error_invalid_email));
-            editSenderEmail.requestFocus();
-            return false;
-        }
-
-        if (TextUtils.isEmpty(appPassword)) {
-            showToast(getString(R.string.error_empty_password));
-            editAppPassword.requestFocus();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
+                != PackageManager.PERMISSION_GRANTED) {
+            showToast(getString(R.string.sms_permission_needed));
+            ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.SEND_SMS}, SMS_PERMISSION_REQUEST);
             return false;
         }
 
         return true;
     }
 
-    private void sendSOSEmail() {
-        String recipientEmail = getTextValue(editEmail);
+    private void sendSOS() {
+        String phone = getTextValue(editPhone);
         String name = getTextValue(editName);
-        String senderEmail = getTextValue(editSenderEmail);
-        String appPassword = getTextValue(editAppPassword);
 
-        // Save data
         saveData();
 
-        // Update status
         statusText.setText(R.string.shake_status_sending);
         statusText.setTextColor(ContextCompat.getColor(this, R.color.warning));
 
-        // Build SOS message
-        String timestamp = new SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(new Date());
-
-        String locationStr;
         String mapsLink;
         if (hasLocation) {
-            locationStr = String.format(Locale.US, "%.6f, %.6f", currentLatitude, currentLongitude);
             mapsLink = String.format(Locale.US, "https://maps.google.com/?q=%.6f,%.6f", currentLatitude, currentLongitude);
         } else {
-            locationStr = "Location unavailable - GPS not enabled";
-            mapsLink = "N/A";
+            mapsLink = "Location unavailable";
         }
 
-        String subject = "🚨 EMERGENCY SOS from " + name + " - URGENT HELP NEEDED!";
+        // Keep message short for SMS (160 char limit)
+        String message = "SOS ALERT! I'm " + name + ", I need HELP! " + mapsLink;
 
-        String message = "🚨🚨🚨 EMERGENCY SOS ALERT 🚨🚨🚨\n\n" +
-                "═══════════════════════════════\n" +
-                "This is " + name + ".\n" +
-                "I am in DANGER and need IMMEDIATE HELP!\n" +
-                "═══════════════════════════════\n\n" +
-                "📍 MY CURRENT LOCATION:\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "Coordinates: " + locationStr + "\n" +
-                "Google Maps: " + mapsLink + "\n\n" +
-                "🕐 Time of Alert: " + timestamp + "\n\n" +
-                "⚠️ WHAT TO DO:\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "1. Call emergency services: 100 (Police) / 112 (Emergency)\n" +
-                "2. Try to contact me immediately\n" +
-                "3. Share my location with authorities\n" +
-                "4. Come to my location if safe to do so\n\n" +
-                "━━━━━━━━━━━━━━━━━━━━━━━\n" +
-                "This is an automated SOS message sent via SafeShake app.\n" +
-                "Please take this alert seriously!";
-
-        // Send email using EmailSender
-        new EmailSender(senderEmail, appPassword, recipientEmail, subject, message,
-                new EmailSender.EmailCallback() {
-                    @Override
-                    public void onSuccess() {
-                        runOnUiThread(() -> {
-                            statusText.setText(R.string.shake_status_sent);
-                            statusText.setTextColor(ContextCompat.getColor(MainActivity.this, R.color.success));
-                            showToast("✅ SOS email sent successfully!");
-                            
-                            // Vibrate success pattern
-                            if (vibrator != null && vibrator.hasVibrator()) {
-                                vibrator.vibrate(VibrationEffect.createWaveform(new long[]{0, 100, 100, 100, 100, 100}, -1));
-                            }
-                        });
-                    }
-
-                    @Override
-                    public void onFailure(String error) {
-                        runOnUiThread(() -> {
-                            statusText.setText(R.string.shake_status_failed);
-                            statusText.setTextColor(ContextCompat.getColor(MainActivity.this, R.color.sos_red));
-                            showToast("❌ Failed to send: " + error);
-                        });
-                    }
-                }).execute();
+        try {
+            SmsManager smsManager = SmsManager.getDefault();
+            
+            // Split message if too long
+            java.util.ArrayList<String> parts = smsManager.divideMessage(message);
+            
+            if (parts.size() > 1) {
+                smsManager.sendMultipartTextMessage(phone, null, parts, null, null);
+            } else {
+                smsManager.sendTextMessage(phone, null, message, null, null);
+            }
+            
+            statusText.setText(R.string.shake_status_sent);
+            statusText.setTextColor(ContextCompat.getColor(this, R.color.success));
+            showToast("SOS SMS sent to " + phone);
+            
+            if (vibrator != null && vibrator.hasVibrator()) {
+                vibrator.vibrate(VibrationEffect.createWaveform(new long[]{0, 100, 100, 100, 100, 100}, -1));
+            }
+        } catch (Exception e) {
+            statusText.setText(R.string.shake_status_failed);
+            statusText.setTextColor(ContextCompat.getColor(this, R.color.sos_red));
+            showToast("Failed to send SMS: " + e.getMessage());
+        }
     }
 
     private String getTextValue(TextInputEditText editText) {
@@ -517,21 +451,41 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == LOCATION_PERMISSION_REQUEST) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startLocationUpdates();
-            } else {
-                showToast(getString(R.string.location_permission_needed));
+        
+        boolean smsGranted = false;
+        boolean locationGranted = false;
+        
+        for (int i = 0; i < permissions.length; i++) {
+            if (permissions[i].equals(Manifest.permission.SEND_SMS)) {
+                smsGranted = grantResults[i] == PackageManager.PERMISSION_GRANTED;
+            } else if (permissions[i].equals(Manifest.permission.ACCESS_FINE_LOCATION)) {
+                locationGranted = grantResults[i] == PackageManager.PERMISSION_GRANTED;
             }
+        }
+        
+        if (!smsGranted && ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
+            // Show dialog explaining why SMS permission is needed
+            new AlertDialog.Builder(this)
+                    .setTitle("SMS Permission Required")
+                    .setMessage("This app needs SMS permission to send emergency SOS messages. Please grant the permission in Settings.")
+                    .setPositiveButton("Open Settings", (dialog, which) -> {
+                        Intent intent = new Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
+                        intent.setData(android.net.Uri.parse("package:" + getPackageName()));
+                        startActivity(intent);
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        }
+        
+        if (locationGranted || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
+            startLocationUpdates();
         }
     }
 
     @Override
     protected void onResume() {
         super.onResume();
-        if (isShakeEnabled) {
-            registerShakeListener();
-        }
+        if (isShakeEnabled) registerShakeListener();
         updateStatusUI();
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 == PackageManager.PERMISSION_GRANTED) {
@@ -544,20 +498,13 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         super.onPause();
         unregisterShakeListener();
         saveData();
-        
-        // Start service when app goes to background if enabled
-        if (isShakeEnabled) {
-            startShakeService();
-        }
+        if (isShakeEnabled) startShakeService();
     }
 
     @Override
     protected void onDestroy() {
         super.onDestroy();
-        if (countDownTimer != null) {
-            countDownTimer.cancel();
-        }
+        if (countDownTimer != null) countDownTimer.cancel();
         fusedLocationClient.removeLocationUpdates(locationCallback);
-        // Service keeps running in background
     }
 }
