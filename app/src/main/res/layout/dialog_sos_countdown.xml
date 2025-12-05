@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="24dp"
+    android:gravity="center"
+    android:background="@color/surface">
+
+    <ImageView
+        android:layout_width="64dp"
+        android:layout_height="64dp"
+        android:src="@drawable/ic_sos"
+        android:contentDescription="SOS Alert" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="🚨 SOS ALERT 🚨"
+        android:textSize="22sp"
+        android:textStyle="bold"
+        android:textColor="@color/sos_red"
+        android:layout_marginTop="16dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Emergency email will be sent in"
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary"
+        android:layout_marginTop="8dp" />
+
+    <TextView
+        android:id="@+id/countdownText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="3"
+        android:textSize="56sp"
+        android:textStyle="bold"
+        android:textColor="@color/sos_red"
+        android:layout_marginTop="8dp" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="seconds"
+        android:textSize="14sp"
+        android:textColor="@color/text_secondary" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="24dp"
+        android:gravity="center">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCancel"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="Cancel"
+            android:textAllCaps="false"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            app:cornerRadius="12dp"
+            app:strokeColor="@color/text_secondary"
+            android:textColor="@color/text_secondary"
+            android:layout_marginEnd="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSendNow"
+            android:layout_width="0dp"
+            android:layout_height="48dp"
+            android:layout_weight="1"
+            android:text="Send Now!"
+            android:textAllCaps="false"
+            app:cornerRadius="12dp"
+            app:backgroundTint="@color/sos_red"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+</LinearLayout>

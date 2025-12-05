@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ShakeToSave</string>
+    <string name="app_subtitle">Your safety companion - Shake to send SOS</string>
+    <string name="emergency_contact">Emergency Contact Email</string>
+    <string name="hint_email">Enter emergency contact email</string>
+    <string name="your_name">Your Name</string>
+    <string name="hint_name">Enter your name</string>
+    <string name="sender_email">Sender Gmail Address</string>
+    <string name="hint_sender_email">your.email@gmail.com</string>
+    <string name="app_password">Gmail App Password</string>
+    <string name="hint_app_password">Enter 16-character app password</string>
+    <string name="shake_status_ready">Protection Active</string>
+    <string name="shake_status_disabled">Protection Disabled</string>
+    <string name="shake_status_sending">Sending SOS...</string>
+    <string name="shake_status_sent">SOS Sent Successfully!</string>
+    <string name="shake_status_failed">Failed to send SOS</string>
+    <string name="shake_instruction">Shake your phone 2 times to send emergency SOS</string>
+    <string name="enable_protection">Enable SOS Protection</string>
+    <string name="enable_protection_desc">Shake detection for emergency alerts</string>
+    <string name="test_sos">Test SOS Alert</string>
+    <string name="error_empty_email">Please set emergency contact email</string>
+    <string name="error_invalid_email">Please enter a valid email address</string>
+    <string name="error_empty_name">Please enter your name</string>
+    <string name="error_empty_sender">Please enter sender Gmail address</string>
+    <string name="error_empty_password">Please enter Gmail app password</string>
+    <string name="sos_detected">SOS Triggered!</string>
+    <string name="sos_cancelled">SOS Cancelled</string>
+    <string name="location_permission_needed">Location permission needed for SOS</string>
+    <string name="getting_location">Getting your location...</string>
+    <string name="setup_title">Setup Emergency Contact</string>
+    <string name="email_setup_title">Email Configuration</string>
+    <string name="email_setup_note">Use Gmail with App Password (not regular password)</string>
+    <string name="safety_tips_title">Safety Tips</string>
+    <string name="tip_1">• Keep your phone charged and accessible</string>
+    <string name="tip_2">• Share your live location with trusted contacts</string>
+    <string name="tip_3">• Practice the shake gesture beforehand</string>
+    <string name="sos_message_preview">SOS Message Preview</string>
+</resources>
