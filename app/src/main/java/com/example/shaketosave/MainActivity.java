@@ -44,8 +44,6 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.switchmaterial.SwitchMaterial;
 import com.google.android.material.textfield.TextInputEditText;
 
-import java.text.SimpleDateFormat;
-import java.util.Date;
 import java.util.Locale;
 
 public class MainActivity extends AppCompatActivity implements ShakeDetector.OnShakeListener {
@@ -54,9 +52,8 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
     private static final String KEY_PHONE = "emergency_phone";
     private static final String KEY_NAME = "user_name";
     private static final String KEY_SERVICE_ENABLED = "service_enabled";
-    private static final int LOCATION_PERMISSION_REQUEST = 1001;
     private static final int SMS_PERMISSION_REQUEST = 1002;
-    private static final int NOTIFICATION_PERMISSION_REQUEST = 1003;
+    private static final int RECORD_AUDIO_PERMISSION_REQUEST = 1004;
     private static final int SHAKE_THRESHOLD = 2;
     private static final int COUNTDOWN_SECONDS = 5;
 
@@ -105,19 +102,19 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
     private void checkPermissions() {
         // Request all permissions together for better UX
         java.util.List<String> permissionsNeeded = new java.util.ArrayList<>();
-        
+
         // SMS permission (required)
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS)
                 != PackageManager.PERMISSION_GRANTED) {
             permissionsNeeded.add(Manifest.permission.SEND_SMS);
         }
-        
+
         // Location permission
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
                 != PackageManager.PERMISSION_GRANTED) {
             permissionsNeeded.add(Manifest.permission.ACCESS_FINE_LOCATION);
         }
-        
+
         // Notification permission for Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS)
@@ -125,7 +122,13 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
                 permissionsNeeded.add(Manifest.permission.POST_NOTIFICATIONS);
             }
         }
-        
+
+        // Record audio permission
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                != PackageManager.PERMISSION_GRANTED) {
+            permissionsNeeded.add(Manifest.permission.RECORD_AUDIO);
+        }
+
         if (!permissionsNeeded.isEmpty()) {
             ActivityCompat.requestPermissions(this,
                     permissionsNeeded.toArray(new String[0]),
@@ -172,7 +175,19 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         };
     }
 
+    private void startVoiceRecognitionService() {
+        Intent serviceIntent = new Intent(this, VoiceRecognitionService.class);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent);
+        } else {
+            startService(serviceIntent);
+        }
+    }
 
+    private void stopVoiceRecognitionService() {
+        Intent serviceIntent = new Intent(this, VoiceRecognitionService.class);
+        stopService(serviceIntent);
+    }
 
     private void startLocationUpdates() {
         if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION)
@@ -197,11 +212,11 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         SharedPreferences prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE);
         editPhone.setText(prefs.getString(KEY_PHONE, ""));
         editName.setText(prefs.getString(KEY_NAME, ""));
-        
+
         boolean serviceEnabled = prefs.getBoolean(KEY_SERVICE_ENABLED, false);
         switchShake.setChecked(serviceEnabled);
         isShakeEnabled = serviceEnabled;
-        
+
         updateSOSPreview();
     }
 
@@ -216,17 +231,19 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         switchShake.setOnCheckedChangeListener((buttonView, isChecked) -> {
             isShakeEnabled = isChecked;
             updateStatusUI();
-            
+
             SharedPreferences.Editor editor = getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit();
             editor.putBoolean(KEY_SERVICE_ENABLED, isChecked);
             editor.apply();
-            
+
             if (isChecked) {
                 registerShakeListener();
                 startShakeService();
+                startVoiceRecognitionService();
             } else {
                 unregisterShakeListener();
                 stopShakeService();
+                stopVoiceRecognitionService();
             }
         });
 
@@ -286,7 +303,11 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
         if (count < SHAKE_THRESHOLD) return;
 
         if (vibrator != null && vibrator.hasVibrator()) {
-            vibrator.vibrate(VibrationEffect.createWaveform(new long[]{0, 200, 100, 200}, -1));
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createWaveform(new long[]{0, 200, 100, 200}, -1));
+            } else {
+                vibrator.vibrate(new long[]{0, 200, 100, 200}, -1);
+            }
         }
 
         Animation shake = AnimationUtils.loadAnimation(this, R.anim.shake);
@@ -325,7 +346,11 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
                 int secondsLeft = (int) (millisUntilFinished / 1000) + 1;
                 countdownText.setText(String.valueOf(secondsLeft));
                 if (vibrator != null && vibrator.hasVibrator()) {
-                    vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE));
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        vibrator.vibrate(VibrationEffect.createOneShot(100, VibrationEffect.DEFAULT_AMPLITUDE));
+                    } else {
+                        vibrator.vibrate(100);
+                    }
                 }
             }
 
@@ -406,22 +431,26 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
 
         try {
             SmsManager smsManager = SmsManager.getDefault();
-            
+
             // Split message if too long
             java.util.ArrayList<String> parts = smsManager.divideMessage(message);
-            
+
             if (parts.size() > 1) {
                 smsManager.sendMultipartTextMessage(phone, null, parts, null, null);
             } else {
                 smsManager.sendTextMessage(phone, null, message, null, null);
             }
-            
+
             statusText.setText(R.string.shake_status_sent);
             statusText.setTextColor(ContextCompat.getColor(this, R.color.success));
             showToast("SOS SMS sent to " + phone);
-            
+
             if (vibrator != null && vibrator.hasVibrator()) {
-                vibrator.vibrate(VibrationEffect.createWaveform(new long[]{0, 100, 100, 100, 100, 100}, -1));
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createWaveform(new long[]{0, 100, 100, 100, 100, 100}, -1));
+                } else {
+                    vibrator.vibrate(new long[]{0, 100, 100, 100, 100, 100}, -1);
+                }
             }
         } catch (Exception e) {
             statusText.setText(R.string.shake_status_failed);
@@ -451,18 +480,21 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
     @Override
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        
+
         boolean smsGranted = false;
         boolean locationGranted = false;
-        
+        boolean audioGranted = false;
+
         for (int i = 0; i < permissions.length; i++) {
             if (permissions[i].equals(Manifest.permission.SEND_SMS)) {
                 smsGranted = grantResults[i] == PackageManager.PERMISSION_GRANTED;
             } else if (permissions[i].equals(Manifest.permission.ACCESS_FINE_LOCATION)) {
                 locationGranted = grantResults[i] == PackageManager.PERMISSION_GRANTED;
+            } else if (permissions[i].equals(Manifest.permission.RECORD_AUDIO)) {
+                audioGranted = grantResults[i] == PackageManager.PERMISSION_GRANTED;
             }
         }
-        
+
         if (!smsGranted && ContextCompat.checkSelfPermission(this, Manifest.permission.SEND_SMS) != PackageManager.PERMISSION_GRANTED) {
             // Show dialog explaining why SMS permission is needed
             new AlertDialog.Builder(this)
@@ -476,7 +508,7 @@ public class MainActivity extends AppCompatActivity implements ShakeDetector.OnS
                     .setNegativeButton("Cancel", null)
                     .show();
         }
-        
+
         if (locationGranted || ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED) {
             startLocationUpdates();
         }
